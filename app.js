@@ -15,6 +15,7 @@ const state = {
   studyCards: loadStudyCards(),
   tab: 'home',
   searchQuery: '',
+  autoKana: true,
   isSearchComposing: false,
   selectedReviewCardId: null,
   reviewAnswer: '',
@@ -159,9 +160,10 @@ function renderSearch() {
       <div class="search-layout">
         <aside class="search-box card">
           <h2>Search</h2>
-          <input id="searchInput" class="input" placeholder="Try 日, 学校, がっこう, today, 幼馴染" />
+          <input id="searchInput" class="input" lang="ja" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Try 日, 学校, がっこう, osananajimi" />
           <div class="inline-actions">
             <button id="clearSearch" class="ghost-button">Show kanji grid</button>
+            <button id="toggleAutoKana" class="ghost-button"></button>
             <button id="loadJmdict">Load JMdict fallback</button>
           </div>
           <p class="muted">Core search uses kanji_data.json and vocab_data.json. JMdict fallback is optional because it is large, but now you can load it into the website and search dictionary-only words too.</p>
@@ -186,7 +188,12 @@ function renderSearch() {
     });
 
     searchInput.addEventListener('input', (event) => {
-      state.searchQuery = event.target.value;
+      let value = event.target.value;
+      if (!state.isSearchComposing && state.autoKana) {
+        value = convertRomajiToHiragana(value);
+        event.target.value = value;
+      }
+      state.searchQuery = value;
       if (!state.isSearchComposing) {
         renderSearchResults();
       }
@@ -196,6 +203,12 @@ function renderSearch() {
       state.searchQuery = '';
       state.isSearchComposing = false;
       searchInput.value = '';
+      renderSearchResults();
+      searchInput.focus();
+    });
+
+    document.getElementById('toggleAutoKana').addEventListener('click', () => {
+      state.autoKana = !state.autoKana;
       renderSearchResults();
       searchInput.focus();
     });
@@ -223,6 +236,11 @@ function renderSearchResults() {
   const searchInput = document.getElementById('searchInput');
   if (searchInput && searchInput.value !== state.searchQuery && document.activeElement !== searchInput) {
     searchInput.value = state.searchQuery;
+  }
+
+  const autoKanaButton = document.getElementById('toggleAutoKana');
+  if (autoKanaButton) {
+    autoKanaButton.textContent = state.autoKana ? 'Romaji → かな: On' : 'Romaji → かな: Off';
   }
 
   const loadJmdictButton = document.getElementById('loadJmdict');
@@ -351,9 +369,9 @@ function renderReview() {
         <span>Interval: ${card.intervalDays} day(s)</span>
         <span>Ease: ${card.easeFactor.toFixed(2)}</span>
       </div>
-      <p class="muted">Type the hiragana reading.</p>
+      <p class="muted">Type the hiragana reading. Romaji auto-conversion is ${state.autoKana ? 'on' : 'off'}.</p>
       <div class="review-face">${escapeHtml(card.front)}</div>
-      <input id="reviewAnswer" class="input" placeholder="ひらがな" value="${escapeHtml(state.reviewAnswer)}" />
+      <input id="reviewAnswer" class="input" lang="ja" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="ひらがな / romaji" value="${escapeHtml(state.reviewAnswer)}" />
       ${state.reviewChecked ? `
         <div class="${isCorrect ? 'feedback good' : 'feedback bad'}"><strong>${isCorrect ? 'Correct' : 'Not quite'}</strong></div>
         <div class="muted">Reading: ${escapeHtml(card.reading || '—')}</div>
@@ -377,7 +395,12 @@ function renderReview() {
   });
 
   answerInput.addEventListener('input', (event) => {
-    state.reviewAnswer = event.target.value;
+    let value = event.target.value;
+    if (!state.isReviewComposing && state.autoKana) {
+      value = convertRomajiToHiragana(value);
+      event.target.value = value;
+    }
+    state.reviewAnswer = value;
     if (state.reviewChecked) state.reviewChecked = false;
   });
 
@@ -603,6 +626,108 @@ function normalizeSearchText(value) {
 
 function normalizeReading(value) {
   return katakanaToHiragana(String(value || '').trim().replace(/\s+/g, '').replace(/[ー・]/g, ''));
+}
+
+function convertRomajiToHiragana(value) {
+  const map = {
+    kya: 'きゃ', kyu: 'きゅ', kyo: 'きょ',
+    gya: 'ぎゃ', gyu: 'ぎゅ', gyo: 'ぎょ',
+    sha: 'しゃ', shu: 'しゅ', sho: 'しょ',
+    sya: 'しゃ', syu: 'しゅ', syo: 'しょ',
+    ja: 'じゃ', ju: 'じゅ', jo: 'じょ',
+    jya: 'じゃ', jyu: 'じゅ', jyo: 'じょ',
+    cha: 'ちゃ', chu: 'ちゅ', cho: 'ちょ',
+    cya: 'ちゃ', cyu: 'ちゅ', cyo: 'ちょ',
+    nya: 'にゃ', nyu: 'にゅ', nyo: 'にょ',
+    hya: 'ひゃ', hyu: 'ひゅ', hyo: 'ひょ',
+    bya: 'びゃ', byu: 'びゅ', byo: 'びょ',
+    pya: 'ぴゃ', pyu: 'ぴゅ', pyo: 'ぴょ',
+    mya: 'みゃ', myu: 'みゅ', myo: 'みょ',
+    rya: 'りゃ', ryu: 'りゅ', ryo: 'りょ',
+    dya: 'ぢゃ', dyu: 'ぢゅ', dyo: 'ぢょ',
+    fa: 'ふぁ', fi: 'ふぃ', fe: 'ふぇ', fo: 'ふぉ',
+    tsa: 'つぁ', tsi: 'つぃ', tse: 'つぇ', tso: 'つぉ',
+    shi: 'し', chi: 'ち', tsu: 'つ', fu: 'ふ', ji: 'じ',
+    aa: 'ああ', ii: 'いい', uu: 'うう', ee: 'ええ', oo: 'おお',
+    ka: 'か', ki: 'き', ku: 'く', ke: 'け', ko: 'こ',
+    ga: 'が', gi: 'ぎ', gu: 'ぐ', ge: 'げ', go: 'ご',
+    sa: 'さ', si: 'し', su: 'す', se: 'せ', so: 'そ',
+    za: 'ざ', zi: 'じ', zu: 'ず', ze: 'ぜ', zo: 'ぞ',
+    ta: 'た', ti: 'ち', tu: 'つ', te: 'て', to: 'と',
+    da: 'だ', di: 'ぢ', du: 'づ', de: 'で', do: 'ど',
+    na: 'な', ni: 'に', nu: 'ぬ', ne: 'ね', no: 'の',
+    ha: 'は', hi: 'ひ', hu: 'ふ', he: 'へ', ho: 'ほ',
+    ba: 'ば', bi: 'び', bu: 'ぶ', be: 'べ', bo: 'ぼ',
+    pa: 'ぱ', pi: 'ぴ', pu: 'ぷ', pe: 'ぺ', po: 'ぽ',
+    ma: 'ま', mi: 'み', mu: 'む', me: 'め', mo: 'も',
+    ya: 'や', yu: 'ゆ', yo: 'よ',
+    ra: 'ら', ri: 'り', ru: 'る', re: 'れ', ro: 'ろ',
+    wa: 'わ', wo: 'を',
+    a: 'あ', i: 'い', u: 'う', e: 'え', o: 'お',
+    n: 'ん'
+  };
+
+  const source = String(value || '');
+  const lower = source.toLowerCase();
+  let result = '';
+  let i = 0;
+
+  while (i < lower.length) {
+    const char = lower[i];
+
+    if (!/[a-z'-]/.test(char)) {
+      result += source[i];
+      i += 1;
+      continue;
+    }
+
+    const next = lower[i + 1] || '';
+
+    if (char === 'n' && next === "'") {
+      result += 'ん';
+      i += 2;
+      continue;
+    }
+
+    if (char === next && /[bcdfghjklmpqrstvwxyz]/.test(char) && char !== 'n') {
+      result += 'っ';
+      i += 1;
+      continue;
+    }
+
+    if (char === 'n' && next && !/[aeiouy]/.test(next)) {
+      result += 'ん';
+      i += 1;
+      continue;
+    }
+
+    const chunk3 = lower.slice(i, i + 3);
+    const chunk2 = lower.slice(i, i + 2);
+    const chunk1 = lower.slice(i, i + 1);
+
+    if (map[chunk3]) {
+      result += map[chunk3];
+      i += 3;
+      continue;
+    }
+
+    if (map[chunk2]) {
+      result += map[chunk2];
+      i += 2;
+      continue;
+    }
+
+    if (map[chunk1]) {
+      result += map[chunk1];
+      i += 1;
+      continue;
+    }
+
+    result += source[i];
+    i += 1;
+  }
+
+  return result;
 }
 
 function katakanaToHiragana(value) {
