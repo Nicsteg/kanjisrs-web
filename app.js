@@ -49,6 +49,8 @@ async function loadCoreData() {
 
     state.kanji = kanji;
     state.vocab = vocab;
+    state.studyCards = state.studyCards.map(upgradeStudyCard);
+    persistStudyCards();
     render();
   } catch (error) {
     console.error(error);
@@ -75,6 +77,8 @@ async function loadJmdictFallback() {
       .filter(Boolean)
       .map((line) => JSON.parse(line));
 
+    state.studyCards = state.studyCards.map(upgradeStudyCard);
+    persistStudyCards();
     state.jmdictStatus = 'loaded';
     render();
   } catch (error) {
@@ -268,7 +272,7 @@ function renderSearchResults() {
       <h2>${query ? 'Kanji results' : 'Kanji grid'}</h2>
       ${kanjiMatches.length ? `<div class="kanji-grid">${kanjiMatches.map((entry) => `<button class="kanji-tile" data-open-kanji="${escapeHtml(entry.kanji)}">${escapeHtml(entry.kanji)}</button>`).join('')}</div>` : '<div class="empty-state">No matching kanji found.</div>'}
     </div>
-    ${query ? `<div class="card"><h2>Curated vocabulary results</h2>${vocabMatches.length ? `<div class="list">${vocabMatches.map((entry, index) => vocabCardMarkup(entry, index, 'curated')).join('')}</div>` : '<div class="empty-state">No matching curated vocabulary found.</div>'}</div>` : ''}
+    ${query ? `<div class="card"><h2>Curated vocabulary results</h2>${vocabMatches.length ? `<div class="list">${vocabMatches.map((entry) => vocabCardMarkup(entry, state.vocab.indexOf(entry), 'curated')).join('')}</div>` : '<div class="empty-state">No matching curated vocabulary found.</div>'}</div>` : ''}
     ${query ? `<div class="card"><h2>JMdict fallback results</h2>${renderFallbackSearchBody(fallbackMatches)}</div>` : ''}
   `;
 
@@ -302,7 +306,7 @@ function renderFallbackSearchBody(fallbackMatches) {
     return '<div class="empty-state">No matching fallback vocabulary found.</div>';
   }
 
-  return `<div class="list">${fallbackMatches.map((entry, index) => vocabCardMarkup(entry, index, 'fallback')).join('')}</div>`;
+  return `<div class="list">${fallbackMatches.map((entry) => vocabCardMarkup(entry, state.jmdictFallback.indexOf(entry), 'fallback')).join('')}</div>`;
 }
 
 function jmdictButtonLabel() {
@@ -509,7 +513,7 @@ function getVocabEntry(source, index) {
 
 function vocabCardId(source, index, entry) {
   if (source === 'fallback') return `FALLBACK:${index}:${entry.word}:${entry.reading || ''}`;
-  return `VOCAB:${entry.word}`;
+  return `VOCAB:${index}:${entry.word}:${entry.reading || ''}`;
 }
 
 function addKanjiToStudy(kanjiChar) {
@@ -546,6 +550,8 @@ function addVocabToStudy(source, index) {
   state.studyCards.push({
     id,
     type: 'VOCAB',
+    source,
+    sourceIndex: index,
     front: entry.word || '',
     reading: entry.reading || '',
     meanings: entry.meanings || [],
@@ -789,10 +795,58 @@ function scheduleReview(card, rating, now) {
 
 function loadStudyCards() {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEYS.cards) || '[]');
+    return JSON.parse(localStorage.getItem(STORAGE_KEYS.cards) || '[]').map(upgradeStudyCard);
   } catch {
     return [];
   }
+}
+
+function upgradeStudyCard(card) {
+  if (!card || card.type !== 'VOCAB') return card;
+
+  if (card.source && Number.isInteger(card.sourceIndex)) {
+    return card;
+  }
+
+  if (typeof card.id === 'string') {
+    if (card.id.startsWith('FALLBACK:')) {
+      const parts = card.id.split(':');
+      const sourceIndex = Number(parts[1]);
+      if (!Number.isNaN(sourceIndex)) {
+        return { ...card, source: 'fallback', sourceIndex };
+      }
+    }
+
+    if (card.id.startsWith('VOCAB:')) {
+      const parts = card.id.split(':');
+      const sourceIndex = Number(parts[1]);
+      if (!Number.isNaN(sourceIndex)) {
+        return { ...card, source: 'curated', sourceIndex };
+      }
+    }
+  }
+
+  const curatedIndex = state.vocab.findIndex((entry) => entry.word === card.front && (entry.reading || '') === (card.reading || ''));
+  if (curatedIndex >= 0) {
+    return {
+      ...card,
+      id: vocabCardId('curated', curatedIndex, state.vocab[curatedIndex]),
+      source: 'curated',
+      sourceIndex: curatedIndex
+    };
+  }
+
+  const fallbackIndex = state.jmdictFallback.findIndex((entry) => entry.word === card.front && (entry.reading || '') === (card.reading || ''));
+  if (fallbackIndex >= 0) {
+    return {
+      ...card,
+      id: vocabCardId('fallback', fallbackIndex, state.jmdictFallback[fallbackIndex]),
+      source: 'fallback',
+      sourceIndex: fallbackIndex
+    };
+  }
+
+  return card;
 }
 
 function persistStudyCards() {
@@ -873,14 +927,35 @@ function wireStudyRowActions(root) {
         return;
       }
 
+      if (card.source && Number.isInteger(card.sourceIndex)) {
+        openVocabDetail(card.source, card.sourceIndex);
+        return;
+      }
+
       if (card.id.startsWith('FALLBACK:')) {
         const parts = card.id.split(':');
         openVocabDetail('fallback', Number(parts[1]));
         return;
       }
 
-      const index = state.vocab.findIndex((entry) => `VOCAB:${entry.word}` === card.id);
-      if (index >= 0) openVocabDetail('curated', index);
+      if (card.id.startsWith('VOCAB:')) {
+        const parts = card.id.split(':');
+        if (parts.length > 2 && !Number.isNaN(Number(parts[1]))) {
+          openVocabDetail('curated', Number(parts[1]));
+          return;
+        }
+      }
+
+      const legacyIndex = state.vocab.findIndex((entry) => entry.word === card.front && (entry.reading || '') === (card.reading || ''));
+      if (legacyIndex >= 0) {
+        openVocabDetail('curated', legacyIndex);
+        return;
+      }
+
+      const fallbackLegacyIndex = state.jmdictFallback.findIndex((entry) => entry.word === card.front && (entry.reading || '') === (card.reading || ''));
+      if (fallbackLegacyIndex >= 0) {
+        openVocabDetail('fallback', fallbackLegacyIndex);
+      }
     });
   });
 }
