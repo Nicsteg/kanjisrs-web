@@ -32,6 +32,7 @@ This project does **not** delete, edit, or replace the original Android app.
 - Add/remove study cards
 - Review cards with Again / Hard / Good / Easy ratings
 - Progress saved in `localStorage`
+- Export/import progress backup files for moving study data between devices
 - Light/dark theme toggle
 
 ## JMdict fallback note
@@ -41,6 +42,16 @@ The fallback file is large:
 - `data/jmdict_fallback_vocab.jsonl`
 
 So the website now loads it **on demand** from the Search tab instead of loading it immediately on page open. After you click **Load JMdict fallback**, the site fetches and parses the dictionary into browser memory and includes those results in search.
+
+## Moving progress between devices
+
+Use the **Backup & transfer progress** section on the Home tab:
+
+1. Click **Export progress** to download a JSON backup file.
+2. Move that file to another device however you want.
+3. Open the site on the other device and click **Import progress**.
+
+This is a manual cross-device sync flow. The site still works fully offline and does not require accounts or a backend.
 
 ## Run locally
 

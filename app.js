@@ -21,7 +21,9 @@ const state = {
   reviewAnswer: '',
   isReviewComposing: false,
   reviewChecked: false,
-  sessionDoneCount: 0
+  sessionDoneCount: 0,
+  transferMessage: '',
+  transferError: ''
 };
 
 const elements = {
@@ -143,6 +145,18 @@ function renderHome() {
       </div>
     </div>
     <div class="card" style="margin-top: 1rem;">
+      <h2>Backup & transfer progress</h2>
+      <p class="muted">You can now export your study progress to a JSON backup file, then import it on another device to keep your kanji and vocab progress in sync manually. No account or server setup is required.</p>
+      <div class="inline-actions">
+        <button id="exportProgress" class="button">Export progress</button>
+        <button id="importProgress" class="ghost-button">Import progress</button>
+        <input id="importProgressInput" type="file" accept="application/json,.json" hidden />
+      </div>
+      <p class="muted">Importing replaces the current device's saved study progress with the file you choose.</p>
+      ${state.transferMessage ? `<p class="feedback good">${escapeHtml(state.transferMessage)}</p>` : ''}
+      ${state.transferError ? `<p class="feedback bad">${escapeHtml(state.transferError)}</p>` : ''}
+    </div>
+    <div class="card" style="margin-top: 1rem;">
       <h2>Recently added</h2>
       ${recentCards.length ? `<div class="list">${recentCards.map(studyRowMarkup).join('')}</div>` : '<div class="empty-state">No study items yet. Add kanji or vocabulary from the Search tab.</div>'}
     </div>
@@ -153,6 +167,18 @@ function renderHome() {
       state.tab = button.dataset.jump;
       render();
     });
+  });
+
+  elements.home.querySelector('#exportProgress')?.addEventListener('click', exportProgress);
+  elements.home.querySelector('#importProgress')?.addEventListener('click', () => {
+    elements.home.querySelector('#importProgressInput')?.click();
+  });
+  elements.home.querySelector('#importProgressInput')?.addEventListener('change', async (event) => {
+    const [file] = Array.from(event.target.files || []);
+    if (file) {
+      await importProgressFile(file);
+      event.target.value = '';
+    }
   });
 
   wireStudyRowActions(elements.home);
@@ -828,6 +854,61 @@ function scheduleReview(card, rating, now) {
     easeFactor: card.easeFactor + 0.05,
     reviewCount: card.reviewCount + 1
   };
+}
+
+function exportProgress() {
+  state.transferMessage = '';
+  state.transferError = '';
+
+  const payload = {
+    app: 'KanjiSRS Web',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    theme: state.theme,
+    studyCards: state.studyCards
+  };
+
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  const dateStamp = new Date().toISOString().slice(0, 10);
+
+  link.href = url;
+  link.download = `kanjisrs-progress-${dateStamp}.json`;
+  link.click();
+
+  URL.revokeObjectURL(url);
+  state.transferMessage = 'Progress exported. Move the JSON file to your other device, then import it there.';
+  renderHome();
+}
+
+async function importProgressFile(file) {
+  state.transferMessage = '';
+  state.transferError = '';
+
+  try {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+
+    if (!parsed || !Array.isArray(parsed.studyCards)) {
+      throw new Error('This file does not look like a valid KanjiSRS Web export.');
+    }
+
+    state.studyCards = parsed.studyCards.map(upgradeStudyCard);
+
+    if (parsed.theme === 'light' || parsed.theme === 'dark') {
+      state.theme = parsed.theme;
+      localStorage.setItem(STORAGE_KEYS.theme, state.theme);
+      applyTheme();
+    }
+
+    persistStudyCards();
+    state.transferMessage = `Imported ${state.studyCards.length} study item${state.studyCards.length === 1 ? '' : 's'} from ${file.name}.`;
+    render();
+  } catch (error) {
+    state.transferError = error instanceof Error ? error.message : 'Could not import that file.';
+    renderHome();
+  }
 }
 
 function loadStudyCards() {
